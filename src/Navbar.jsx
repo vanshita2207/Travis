@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { Link } from "react-scroll";
 import { motion, AnimatePresence } from "framer-motion";
-import { Menu, X } from "lucide-react"; // icons for open/close
+import { Menu, X } from "lucide-react";
 
 const Navbar = () => {
   const [isOpen, setIsOpen] = useState(false);
@@ -44,32 +44,43 @@ const Navbar = () => {
       </div>
 
       {/* Desktop Nav Links */}
-      <ul className="hidden md:flex space-x-10 text-white text-base font-medium">
-        {navLinks.map((link, i) => (
-          <motion.li
-            key={i}
-            whileHover={{
-              scale: 1.1,
-              color: "#22d3ee",
-              textShadow: "0 0 10px rgba(34, 211, 238, 0.6)",
-            }}
-            transition={{ type: "spring", stiffness: 300 }}
-            className="cursor-pointer transition-all"
-          >
-            <Link
-              to={link.to}
-              smooth={true}
-              duration={700}
-              offset={-100}
-              spy={true}
-              onClick={() => setIsOpen(false)}
-              className="hover:text-cyan-400"
+      <div className="hidden md:flex items-center space-x-10">
+        <ul className="flex space-x-10 text-white text-base font-medium">
+          {navLinks.map((link, i) => (
+            <motion.li
+              key={i}
+              whileHover={{
+                scale: 1.1,
+                color: "#22d3ee",
+                textShadow: "0 0 10px rgba(34, 211, 238, 0.6)",
+              }}
+              transition={{ type: "spring", stiffness: 300 }}
+              className="cursor-pointer transition-all"
             >
-              {link.name}
-            </Link>
-          </motion.li>
-        ))}
-      </ul>
+              <Link
+                to={link.to}
+                smooth={true}
+                duration={700}
+                offset={-100}
+                spy={true}
+                className="hover:text-cyan-400"
+              >
+                {link.name}
+              </Link>
+            </motion.li>
+          ))}
+        </ul>
+
+        {/* LOGIN BUTTON (Desktop) */}
+        <motion.button
+          whileHover={{ scale: 1.07 }}
+          whileTap={{ scale: 0.95 }}
+          onClick={() => (window.location.href = "/login")}   // ← ADDED THIS
+          className="px-6 py-2 bg-cyan-500 text-white rounded-full font-semibold shadow-md hover:bg-cyan-400 transition-all"
+        >
+          Login
+        </motion.button>
+      </div>
 
       {/* Mobile Menu */}
       <AnimatePresence>
@@ -101,6 +112,19 @@ const Navbar = () => {
                 </Link>
               </motion.li>
             ))}
+
+            {/* LOGIN BUTTON (Mobile) */}
+            <motion.button
+              whileHover={{ scale: 1.07 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={() => {
+                setIsOpen(false);
+                window.location.href = "/login"; // ← ADDED THIS
+              }}
+              className="px-6 py-2 bg-cyan-500 text-white rounded-full font-semibold shadow-md hover:bg-cyan-400 transition-all"
+            >
+              Login
+            </motion.button>
           </motion.ul>
         )}
       </AnimatePresence>

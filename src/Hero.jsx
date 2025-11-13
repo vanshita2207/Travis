@@ -14,7 +14,7 @@ const Hero = () => {
 
   return (
     <section id="hero" className="relative h-screen w-full overflow-hidden font-[Poppins]">
-      {/* Background Video */}
+      {/* Background video...*/}
       <video
         ref={videoRef}
         src={videoBg}
