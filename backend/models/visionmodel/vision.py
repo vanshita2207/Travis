@@ -1,4 +1,3 @@
-
 """
 vision.py
 ---------
@@ -10,11 +9,6 @@ How to use:
    pip install ultralytics opencv-python numpy requests
 3. Run:
    python vision.py
-
-Notes:
-- This posts a JSON payload roughly once every POST_INTERVAL seconds (default: 1s).
-- It computes approach counts by splitting the frame into 4 quadrants (N,E,S,W) using box centroids.
-- Non-blocking: posting uses a short timeout and exceptions are suppressed so the vision loop won't crash.
 """
 
 import time
@@ -28,7 +22,7 @@ import torch
 from ultralytics import YOLO
 
 # ---------------- CONFIG ----------------
-MODEL_PATH = "yolov8m.pt"     # keep medium model (accurate)
+MODEL_PATH = "yolov8m.pt"
 VIDEO_PATH = "video1.mp4"
 SERVER_URL = "http://localhost:5000/metrics"
 POST_INTERVAL = 1.0
@@ -38,8 +32,8 @@ GRID_SIZE = (8, 8)
 SMOOTH_WINDOW = 8
 CONF_THRESH = 0.3
 MIN_BOX_SIZE = 25
-FRAME_RESIZE = 720            # keep same for good detection
-FRAME_SKIP = 1                # skip every other frame only if needed
+FRAME_RESIZE = 720
+FRAME_SKIP = 1
 
 # ---------------- LOAD YOLO ----------------
 device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -94,7 +88,6 @@ while True:
     t0 = time.time()
     frame = cv2.resize(frame, (W, H))
 
-    # run YOLO inference (on GPU if available)
     results = model(frame, conf=CONF_THRESH, verbose=False, device=device)[0]
 
     vehicle_mask = np.zeros((grid_h, grid_w), dtype=np.float32)
@@ -117,9 +110,8 @@ while True:
             continue
 
         vehicle_count += 1
+        # Draw bounding box (no label text)
         cv2.rectangle(frame, (x1, y1), (x2, y2), (255, 180, 0), 2)
-        cv2.putText(frame, label, (x1, y1 - 6), cv2.FONT_HERSHEY_SIMPLEX,
-                    0.5, (255, 255, 255), 1, cv2.LINE_AA)
 
         cx, cy = (x1 + x2) // 2, (y1 + y2) // 2
         cv2.circle(frame, (cx, cy), 3, (0, 255, 0), -1)
@@ -143,7 +135,6 @@ while True:
     history.append(metric)
     smooth_metric = float(np.mean(history))
 
-    # traffic status
     if smooth_metric < 25:
         status, color = "Light Traffic", (0, 255, 0)
     elif smooth_metric < 55:
@@ -151,12 +142,11 @@ while True:
     else:
         status, color = "Heavy Traffic", (0, 0, 255)
 
-    # compute FPS
     fps = 1 / (time.time() - t0 + 1e-6)
     fps_deque.append(fps)
     avg_fps = np.mean(fps_deque)
 
-    # draw overlay
+    # Draw summary overlay
     cv2.putText(frame, f"Vehicles: {vehicle_count}", (10, 40),
                 cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
     cv2.putText(frame, f"Congestion: {status} ({smooth_metric:.1f}%)", (10, 80),
@@ -170,7 +160,7 @@ while True:
 
     cv2.imshow("Smart Traffic Congestion", frame)
 
-    # send metrics (non-blocking)
+    # send metrics
     now = time.time()
     if now - last_post_time >= POST_INTERVAL:
         payload = {
@@ -181,7 +171,6 @@ while True:
         post_metrics_async(payload)
         last_post_time = now
 
-    # smooth display (30ms delay)
     if cv2.waitKey(30) & 0xFF == 27:
         break
 
