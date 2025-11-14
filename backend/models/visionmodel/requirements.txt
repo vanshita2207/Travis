@@ -1,0 +1,8 @@
+ultralytics
+opencv-python
+numpy
+fastapi
+uvicorn
+torch
+requests
+deep-sort-realtime    # optional; only if you want DeepSORT (installing is fine)

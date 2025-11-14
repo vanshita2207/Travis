@@ -1,18 +1,6 @@
-"""
-vision.py
----------
-YOLOv8-based traffic detector + poster to server.
 
-How to use:
-1. Make sure your server (server.py) is running on SERVER_URL (default http://localhost:5000/metrics)
-2. Install dependencies:
-   pip install ultralytics opencv-python numpy requests
-3. Run:
-   python vision.py
-"""
 
 import time
-import math
 import threading
 from collections import deque
 import cv2
@@ -24,7 +12,8 @@ from ultralytics import YOLO
 # ---------------- CONFIG ----------------
 MODEL_PATH = "yolov8m.pt"
 VIDEO_PATH = "video1.mp4"
-SERVER_URL = "http://localhost:5000/metrics"
+OUTPUT_PATH = "output_proof_video_ui.avi"
+SERVER_URL = "http://127.0.0.1:8000/metrics"
 POST_INTERVAL = 1.0
 
 VEHICLE_CLASSES = {"car", "bus", "truck", "motorcycle", "motorbike"}
@@ -57,8 +46,13 @@ cell_h, cell_w = H // grid_h, W // grid_w
 
 history = deque(maxlen=SMOOTH_WINDOW)
 last_post_time = 0.0
-last_post_success = True
 
+# Video writer for proof
+fourcc = cv2.VideoWriter_fourcc(*'XVID')
+fps = cap.get(cv2.CAP_PROP_FPS)
+out = cv2.VideoWriter(OUTPUT_PATH, fourcc, fps, (W, H))
+
+vehicles_per_frame = []
 
 # ---------------- UTILITIES ----------------
 def post_metrics_async(payload):
@@ -70,10 +64,11 @@ def post_metrics_async(payload):
             pass
     threading.Thread(target=send, daemon=True).start()
 
-
-# ---------------- MAIN LOOP ----------------
+# ---------------- PROCESS VIDEO ----------------
 frame_idx = 0
 fps_deque = deque(maxlen=10)
+last_valid_frame = None  # store last valid frame
+
 print("[INFO] Starting video analysis. Press ESC to exit.")
 
 while True:
@@ -81,13 +76,18 @@ while True:
     if not ret:
         break
 
+    last_valid_frame = frame.copy()  # keep last frame for final overlay
     frame_idx += 1
+
+    # Print frame progress every 50 frames
+    if frame_idx % 50 == 0:
+        print(f"[INFO] Processed {frame_idx} frames...")
+
     if FRAME_SKIP and frame_idx % (FRAME_SKIP + 1) != 0:
         continue
 
     t0 = time.time()
     frame = cv2.resize(frame, (W, H))
-
     results = model(frame, conf=CONF_THRESH, verbose=False, device=device)[0]
 
     vehicle_mask = np.zeros((grid_h, grid_w), dtype=np.float32)
@@ -97,7 +97,7 @@ while True:
     for box in results.boxes:
         try:
             cls = int(box.cls[0])
-        except Exception:
+        except:
             cls = int(box.cls)
         label = model.names.get(cls, str(cls)).lower()
         if label not in VEHICLE_CLASSES:
@@ -110,9 +110,7 @@ while True:
             continue
 
         vehicle_count += 1
-        # Draw bounding box (no label text)
         cv2.rectangle(frame, (x1, y1), (x2, y2), (255, 180, 0), 2)
-
         cx, cy = (x1 + x2) // 2, (y1 + y2) // 2
         cv2.circle(frame, (cx, cy), 3, (0, 255, 0), -1)
 
@@ -129,7 +127,7 @@ while True:
         else:
             approach_counts["E"] += 1
 
-    # compute congestion
+    # ---------------- CONGESTION METRIC ----------------
     coverage = vehicle_mask.mean() * 100.0
     metric = 0.6 * coverage + 0.4 * min(vehicle_count * 3, 100)
     history.append(metric)
@@ -142,11 +140,12 @@ while True:
     else:
         status, color = "Heavy Traffic", (0, 0, 255)
 
+    vehicles_per_frame.append(vehicle_count)
     fps = 1 / (time.time() - t0 + 1e-6)
     fps_deque.append(fps)
     avg_fps = np.mean(fps_deque)
 
-    # Draw summary overlay
+    # ---------------- OVERLAY LIVE INFO ----------------
     cv2.putText(frame, f"Vehicles: {vehicle_count}", (10, 40),
                 cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
     cv2.putText(frame, f"Congestion: {status} ({smooth_metric:.1f}%)", (10, 80),
@@ -159,8 +158,9 @@ while True:
                 cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
 
     cv2.imshow("Smart Traffic Congestion", frame)
+    out.write(frame)
 
-    # send metrics
+    # POST METRICS ASYNC
     now = time.time()
     if now - last_post_time >= POST_INTERVAL:
         payload = {
@@ -171,9 +171,55 @@ while True:
         post_metrics_async(payload)
         last_post_time = now
 
-    if cv2.waitKey(30) & 0xFF == 27:
+    if cv2.waitKey(1) & 0xFF == 27:
         break
 
 cap.release()
+out.release()
 cv2.destroyAllWindows()
-print("[INFO] Video processing complete.")
+
+# ------------------------------- FINAL SIGNAL OPTIMIZATION -------------------------------
+avg_vehicles = sum(vehicles_per_frame) / len(vehicles_per_frame)
+max_vehicles = max(vehicles_per_frame) if max(vehicles_per_frame) > 0 else 1
+avg_congestion = (avg_vehicles / max_vehicles) * 100
+
+def congestion_level(avg_congestion):
+    if avg_congestion < 40:
+        return "Light"
+    elif avg_congestion < 70:
+        return "Moderate"
+    else:
+        return "Heavy"
+
+def optimize_signal(original_time, avg_congestion):
+    return round(original_time * (1 + (avg_congestion - 50)/100), 2)
+
+original_time = 28.0
+optimized_time = optimize_signal(original_time, avg_congestion)
+level = congestion_level(avg_congestion)
+time_diff = round(optimized_time - original_time, 2)
+
+# ------------------------------- FINAL OVERLAY -------------------------------
+final_frame = last_valid_frame.copy()  # use last valid frame
+text_lines = [
+    f"Average vehicles/frame: {avg_vehicles:.1f}",
+    f"Avg congestion: {avg_congestion:.1f}% -> {level}",
+    f"Original signal: {original_time}s",
+    f"Optimized signal: {optimized_time}s (+{time_diff}s)"
+]
+
+y0, dy = 50, 50
+for i, line in enumerate(text_lines):
+    y = y0 + i*dy
+    cv2.putText(final_frame, line, (50, y), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+
+cv2.imshow("Final Traffic Analysis", final_frame)
+cv2.waitKey(0)
+cv2.destroyAllWindows()
+
+print("\n========== FINAL RECOMMENDATION ==========")
+print(f"Average vehicles/frame: {avg_vehicles:.1f}")
+print(f"Avg congestion: {avg_congestion:.1f}% -> {level}")
+print(f"Original (inferred): {original_time}s | Optimized: {optimized_time}s (+{time_diff}s)")
+print("==========================================")
+print(f"[INFO] Proof video saved at: {OUTPUT_PATH}")
